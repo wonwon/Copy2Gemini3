@@ -1,0 +1,23 @@
+# 機密情報
+.env
+token.json
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# ログファイル
+*.log
+
+# 音声ファイル（生成物）
+summary.mp3
+
+# アプリケーションバンドル
+*.app/
