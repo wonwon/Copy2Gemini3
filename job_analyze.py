@@ -108,15 +108,6 @@ def text_to_speech(text, output_file="job_proposal.mp3"):
         print(f"❌ TTS 失敗: {e}")
         return None
 
-def extract_company_name(text):
-    """求人テキストから企業名を抽出（推測）"""
-    # 最初の数行から企業名らしきものを探す
-    lines = text.strip().splitlines()
-    for line in lines[:5]:
-        line = line.strip()
-        if "株式会社" in line or "合同会社" in line or "Inc." in line:
-            return line
-    return "不明な企業"
 
 def main():
     target_model = "gemini-2.0-flash-exp" # 最新のFlashモデルをデフォルトに
@@ -142,11 +133,25 @@ def main():
         print(f"エラー: {e}")
         return
 
+    # 1. Parse Gemini Response (1st line = Title, Rest = Proposal content)
+    response_lines = summary.strip().splitlines()
+    if response_lines:
+        extracted_title = response_lines[0].strip(" #*")
+        if len(response_lines) > 2:
+            real_summary = "\n".join(response_lines[2:]).strip()
+        elif len(response_lines) > 1:
+            real_summary = "\n".join(response_lines[1:]).strip()
+        else:
+            real_summary = summary
+    else:
+        extracted_title = "求人分析提案"
+        real_summary = summary
+
     print(f"\n--- AI提案 [{elapsed_time:.2f}s] ---\n")
-    print(summary)
+    print(real_summary)
     
     # 2. 音声化
-    audio_file = text_to_speech(summary)
+    audio_file = text_to_speech(real_summary)
     
     # 3. メール送信
     print("メール送信準備中...")
@@ -154,14 +159,13 @@ def main():
     if not service:
         return
 
-    company = extract_company_name(text)
-    subject = f"【求人分析】{company}"
+    subject = f"【求人分析】{extracted_title}"
     
     body = (
         f"分析モデル: {target_model}\n"
         f"処理時間: {elapsed_time:.2f}s\n\n"
         f"--- AIからの提案 ---\n\n"
-        f"{summary}"
+        f"{real_summary}"
     )
     
     sender = "me"

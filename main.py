@@ -92,7 +92,7 @@ def identify_genre(text, prompts):
     """
     
     try:
-        response = call_gemini_with_fallback('gemini-2.5-flash', classification_prompt, "Genre identification")
+        response = call_gemini_with_fallback('gemini-3-flash-preview', classification_prompt, "Genre identification")
         genre = response.text.strip().lower()
         if genre in genres:
             return genre
@@ -101,7 +101,7 @@ def identify_genre(text, prompts):
         print(f"Genre identification failed: {e}. Using default.")
         return "default"
 
-def summarize_text(text, genre, prompts, model_name='gemini-2.5-flash'):
+def summarize_text(text, genre, prompts, model_name='gemini-3-flash-preview'):
     """テキスト要約（フォールバック対応）"""
     print(f"Summarizing as '{genre}' using {model_name}...")
     start_time = time.time()
@@ -191,7 +191,7 @@ def text_to_speech(text, output_file="summary.mp3"):
 
 def main():
     # Parse Command Line Arguments
-    target_model = "gemini-2.5-flash" # Default
+    target_model = "gemini-3-flash-preview" # Default
     if len(sys.argv) > 1:
         target_model = sys.argv[1]
 
@@ -211,71 +211,42 @@ def main():
     print(summary)
     print("\n----------------\n")
     
-    # 4. TTS (Always run for the selected summary)
-    audio_file = text_to_speech(summary)
+    # 4. Parse Gemini Response (1st line = Title, Rest = Summary)
+    response_lines = summary.strip().splitlines()
+    if response_lines:
+        # Use first line as extracted title
+        extracted_title = response_lines[0].strip(" #*")
+        # Join the rest as the actual summary for TTS and Body
+        if len(response_lines) > 2:
+            real_summary = "\n".join(response_lines[2:]).strip() # Skip title and optional blank line
+        elif len(response_lines) > 1:
+            real_summary = "\n".join(response_lines[1:]).strip()
+        else:
+            real_summary = summary
+    else:
+        extracted_title = "No Title"
+        real_summary = summary
+
+    # 5. TTS (Always run for the selected summary content)
+    audio_file = text_to_speech(real_summary)
     
-    # 5. Gmail API Sending
+    # 6. Gmail API Sending
     print("Preparing to send email via Gmail API...")
     service = get_service()
     if not service:
         print("❌ Failed to get Gmail service. Check credentials.")
         return
 
-    # Extract title (improved logic)
-    import re
-    lines = text.strip().splitlines()
-    title = "No Title"
-    # Keywords to filter out or skip if they are the main part of the line
-    source_keywords = ["日本経済新聞", "日経電子版", "日経", "Nikkei", "NEWS", "ニュース", "経済", 
-                       "【対象データ：日本経済新聞記事】", "対象データ", "対象記事"]
-    
-    # regex for date patterns like 2024/01/01 or 2024年1月1日
-    date_pattern = re.compile(r'(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})|(\d{1,2}:\d{2})')
-
-    for line in lines[:10]:  # Check first 10 lines
-        trimmed_line = line.strip()
-        if not trimmed_line:
-            continue
-            
-        # Skip lines that are just source names
-        if any(trimmed_line == kw for kw in source_keywords):
-            continue
-            
-        # Skip lines that look like dates or times
-        if date_pattern.search(trimmed_line) and len(trimmed_line) < 30:
-            continue
-            
-        # Skip lines that are too short (likely junk)
-        if len(trimmed_line) < 5:
-            continue
-        
-        # We found a potential title
-        title = trimmed_line
-        # Remove source keywords only if they are at the beginning followed by a separator
-        for kw in source_keywords:
-            if title.startswith(kw):
-                # Only remove if it's like "Nikkei: title" or "Nikkei - title"
-                # Otherwise "Nikkei Average" might be mangled
-                potential_title = re.sub(f"^{re.escape(kw)}[ |:：　/\\-]+", "", title)
-                if potential_title != title:
-                    title = potential_title
-        
-        # Final cleanup of common separators at ends
-        title = title.strip(" |-:：　")
-        if title:
-            break
-    
-    if not title or title == "No Title":
-        title = lines[0][:50] if lines else "No Title"
-
-    if len(title) > 50:
-        title = title[:50] + "..."
+    # Use extracted title for subject
+    title = extracted_title if extracted_title else "No Title"
+    if len(title) > 60:
+        title = title[:60] + "..."
     
     # Customize Subject based on Model (3 chars)
     model_map = {
-        "gemini-2.5-flash-lite": "LIT",
+        "gemini-2.0-flash-lite": "LIT",
         "gemini-3-pro-preview": "PRO",
-        "gemini-2.5-flash": "FLS"
+        "gemini-3-flash-preview": "FLS"
     }
     model_short_name = model_map.get(target_model, "GEM")
     subject = f"【{model_short_name}】{title}"
@@ -285,7 +256,7 @@ def main():
         f"Genre: {genre}\n"
         f"Model: {target_model} (Time: {elapsed_time:.2f}s)\n\n"
         f"Summary:\n"
-        f"{summary}"
+        f"{real_summary}"
     )
     
     if not audio_file:
